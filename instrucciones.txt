@@ -1,0 +1,59 @@
+Build a client & task management web app for a small marketing agency (2-3 users, no auth needed).
+
+## Tech Stack
+- Next.js 14 (App Router)
+- TypeScript
+- Tailwind CSS + shadcn/ui
+- Supabase (PostgreSQL) for the database
+- Deploy-ready for Vercel
+
+## Database Schema
+
+**clients**
+- id, name, company, email, phone, status, notes, created_at
+
+Client statuses: "lead", "active", "paused", "finished"
+
+**tasks**
+- id, client_id (FK), title, description, priority ("low" | "medium" | "high"), due_date, assignee, status ("pending" | "in_progress" | "done"), created_at
+
+## Pages & Features
+
+### 1. Dashboard (/)
+- Summary cards: total clients, active clients, pending tasks, overdue tasks
+- List of ALL clients with their status (color-coded badge), number of pending tasks, and next due date
+- Quick filter by client status
+- Button to add new client
+
+### 2. Client Detail (/clients/[id])
+- Client info header (name, company, status badge, contact info, notes) with edit button
+- Full task list for that client, grouped by status (pending / in progress / done)
+- Each task shows: title, priority badge, due date, assignee
+- Ability to add, edit, and mark tasks as done inline
+- Task completion progress bar (X of Y tasks done)
+
+### 3. Add/Edit Client (modal or page)
+- Fields: name, company, email, phone, status, notes
+
+### 4. Add/Edit Task (modal)
+- Fields: title, description, priority, due_date, assignee, status
+
+## UI Requirements
+- Clean, modern design using shadcn/ui components
+- Color-coded status badges (green=active, yellow=paused, gray=finished, blue=lead)
+- Priority colors: red=high, orange=medium, gray=low
+- Responsive (works on desktop and tablet)
+- Empty states with helpful CTAs when no clients/tasks exist
+
+## Setup Instructions
+Include a README.md with:
+1. Supabase setup (SQL to create tables)
+2. .env.example with required variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)
+3. `npm install` and `npm run dev` steps
+4. One-click Vercel deploy instructions
+
+## Code Quality
+- Use server components where possible, client components only where needed
+- Use Supabase JS client for all DB operations
+- No authentication required
+- Keep it simple and maintainable
