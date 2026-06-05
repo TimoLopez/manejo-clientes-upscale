@@ -120,6 +120,22 @@
   50% { transform: translateY(-10px); }
 }
 
+@keyframes waveBar {
+  from { transform: scaleY(0.25); }
+  to   { transform: scaleY(1); }
+}
+
+@keyframes briefPop {
+  0%   { box-shadow: 0 0 0 0   rgba(167,139,250,0.5); }
+  40%  { box-shadow: 0 0 0 5px rgba(167,139,250,0.2); }
+  100% { box-shadow: 0 0 0 0   rgba(167,139,250,0);   }
+}
+
+@keyframes recordPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.85); }
+}
+
 @layer components {
   .glass {
     background: rgba(255, 255, 255, 0.04);
