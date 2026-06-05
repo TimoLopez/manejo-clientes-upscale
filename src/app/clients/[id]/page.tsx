@@ -164,7 +164,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
           {/* LEFT — Ficha del cliente */}
           <div className="lg:col-span-3">
-            <ClientBrief client={client} />
+            <ClientBrief client={client} onTaskCreated={load} />
           </div>
 
           {/* RIGHT — Tasks panel (sticky) */}

@@ -8,7 +8,7 @@ import {
   Mic, MicOff, Sparkles, AlertCircle, X, Plus, Calendar, User,
 } from 'lucide-react'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BriefData {
   last_action:   string
@@ -16,6 +16,17 @@ interface BriefData {
   next_steps:    string
   future_steps:  string
   ideas:         string
+}
+
+interface BriefProposal {
+  key:      keyof BriefData
+  label:    string
+  color:    string
+  icon:     React.ReactNode
+  existing: string
+  content:  string
+  action:   'replace' | 'append'
+  reason:   string
 }
 
 interface DetectedTask {
@@ -28,14 +39,14 @@ interface DetectedTask {
 }
 
 interface Section {
-  key:      keyof BriefData
-  label:    string
-  sublabel: string
-  icon:     React.ReactNode
-  color:    string
-  glow:     string
+  key:         keyof BriefData
+  label:       string
+  sublabel:    string
+  icon:        React.ReactNode
+  color:       string
+  glow:        string
   placeholder: string
-  span?:    'full'
+  span?:       'full'
 }
 
 type VoiceState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
@@ -77,7 +88,7 @@ const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; next
   high:   { label: 'Alta',  color: '#f87171', next: 'low'    },
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function autoResize(el: HTMLTextAreaElement | null) {
   if (!el) return
@@ -94,9 +105,15 @@ function nextId() { return `dt-${++_taskIdCounter}` }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ClientBrief({ client }: { client: Client }) {
+export function ClientBrief({
+  client,
+  onTaskCreated,
+}: {
+  client: Client
+  onTaskCreated?: () => void
+}) {
   // Brief data
-  const [data, setData]   = useState<BriefData>({
+  const [data, setData] = useState<BriefData>({
     last_action:   client.last_action   ?? '',
     pending_notes: client.pending_notes ?? '',
     next_steps:    client.next_steps    ?? '',
@@ -109,20 +126,26 @@ export function ClientBrief({ client }: { client: Client }) {
   const textRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
   // Voice
-  const [voiceState, setVoiceState]               = useState<VoiceState>('idle')
-  const [recordingSeconds, setRecordingSeconds]   = useState(0)
-  const [aiTranscript, setAiTranscript]           = useState('')
-  const [popSections, setPopSections]             = useState<Set<keyof BriefData>>(new Set())
+  const [voiceState, setVoiceState]             = useState<VoiceState>('idle')
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
+  const [aiTranscript, setAiTranscript]         = useState('')
+  const [popSections, setPopSections]           = useState<Set<keyof BriefData>>(new Set())
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef        = useRef<Blob[]>([])
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Detected tasks
-  const [detectedTasks, setDetectedTasks]   = useState<DetectedTask[]>([])
-  const [createdIds, setCreatedIds]         = useState<Set<string>>(new Set())
-  const [creatingId, setCreatingId]         = useState<string | null>(null)
+  // AI proposals for existing fields
+  const [pendingProposals, setPendingProposals]   = useState<BriefProposal[]>([])
+  const [proposalActions, setProposalActions]     = useState<Record<string, 'replace' | 'append'>>({})
+  const [applyingAll, setApplyingAll]             = useState(false)
 
-  // Auto-resize textareas when data changes (including AI fill)
+  // Detected tasks
+  const [detectedTasks, setDetectedTasks] = useState<DetectedTask[]>([])
+  const [createdIds, setCreatedIds]       = useState<Set<string>>(new Set())
+  const [creatingId, setCreatingId]       = useState<string | null>(null)
+  const [creatingAll, setCreatingAll]     = useState(false)
+
+  // Auto-resize textareas when data changes
   useEffect(() => {
     SECTIONS.forEach(s => autoResize(textRefs.current[s.key]))
   }, [data])
@@ -148,10 +171,10 @@ export function ClientBrief({ client }: { client: Client }) {
 
   async function startRecording() {
     try {
-      const stream    = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream  = await navigator.mediaDevices.getUserMedia({ audio: true })
       chunksRef.current = []
-      const mimeType  = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
-      const recorder  = new MediaRecorder(stream, { mimeType })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+      const recorder = new MediaRecorder(stream, { mimeType })
 
       recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = async () => {
@@ -168,6 +191,8 @@ export function ClientBrief({ client }: { client: Client }) {
       setDetectedTasks([])
       setCreatedIds(new Set())
       setAiTranscript('')
+      setPendingProposals([])
+      setProposalActions({})
       timerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000)
     } catch {
       alert('No se pudo acceder al micrófono. Revisá los permisos del navegador.')
@@ -184,34 +209,77 @@ export function ClientBrief({ client }: { client: Client }) {
     try {
       const form = new FormData()
       form.append('audio', blob, `recording.${ext}`)
+      // Send existing content so the AI can reason about it
+      form.append('existing_brief', JSON.stringify({
+        last_action:   data.last_action,
+        pending_notes: data.pending_notes,
+        next_steps:    data.next_steps,
+        future_steps:  data.future_steps,
+        ideas:         data.ideas,
+      }))
 
       const res    = await fetch('/api/voice-brief', { method: 'POST', body: form })
       const result = await res.json()
-      if (!res.ok) throw new Error(result.error ?? 'Error')
+      if (!res.ok) throw new Error(result.error ?? 'Error desconocido')
 
       setAiTranscript(result.transcript)
 
-      // Fill brief sections
-      const filled  = new Set<keyof BriefData>()
-      const update: Partial<BriefData> = {}
+      // Process brief field proposals
+      type FieldResult = { content: string; action: string; reason: string }
+      const briefResult = result.brief as Record<keyof BriefData, FieldResult>
+
+      const immediateUpdate: Partial<BriefData> = {}
+      const proposals: BriefProposal[] = []
+      const initActions: Record<string, 'replace' | 'append'> = {}
       const newData = { ...data }
-      ;(Object.keys(result.brief) as (keyof BriefData)[]).forEach(k => {
-        const val = result.brief[k]
-        if (val?.trim()) { newData[k] = val; update[k] = val; filled.add(k) }
-      })
+      const filled  = new Set<keyof BriefData>()
+
+      for (const section of SECTIONS) {
+        const field = briefResult[section.key]
+        if (!field || field.action === 'keep' || !field.content?.trim()) continue
+
+        const existing = data[section.key]?.trim()
+
+        if (!existing) {
+          // Empty field → auto-fill immediately, no confirmation needed
+          newData[section.key] = field.content
+          immediateUpdate[section.key] = field.content
+          filled.add(section.key)
+        } else {
+          // Field already has content → queue proposal for user to review
+          const action: 'replace' | 'append' = field.action === 'replace' ? 'replace' : 'append'
+          proposals.push({
+            key:      section.key,
+            label:    section.label,
+            color:    section.color,
+            icon:     section.icon,
+            existing,
+            content:  field.content,
+            action,
+            reason:   field.reason,
+          })
+          initActions[section.key] = action
+        }
+      }
+
       setData(newData)
-      if (Object.keys(update).length > 0) {
-        await supabase.from('clients').update(update).eq('id', client.id)
+      if (Object.keys(immediateUpdate).length > 0) {
+        await supabase.from('clients').update(immediateUpdate).eq('id', client.id)
       }
       setPopSections(filled)
       setTimeout(() => setPopSections(new Set()), 1800)
+      setPendingProposals(proposals)
+      setProposalActions(initActions)
 
       // Load detected tasks
       if (Array.isArray(result.tasks) && result.tasks.length > 0) {
-        setDetectedTasks(result.tasks.map((t: Omit<DetectedTask, '_id'>) => ({
-          ...t,
-          _id:      nextId(),
-          due_date: t.due_date ?? '',
+        setDetectedTasks(result.tasks.map((t: Record<string, unknown>) => ({
+          _id:         nextId(),
+          title:       String(t.title       ?? '').trim(),
+          description: String(t.description ?? ''),
+          priority:    (['low', 'medium', 'high'].includes(String(t.priority)) ? t.priority : 'medium') as TaskPriority,
+          due_date:    t.due_date ? String(t.due_date) : '',
+          assignee:    String(t.assignee    ?? ''),
         })))
       }
 
@@ -224,7 +292,60 @@ export function ClientBrief({ client }: { client: Client }) {
     }
   }
 
-  // ── Detected tasks actions ─────────────────────────────────────────────────
+  // ── Proposal actions ────────────────────────────────────────────────────────
+
+  function toggleProposalAction(key: string) {
+    setProposalActions(prev => ({
+      ...prev,
+      [key]: prev[key] === 'replace' ? 'append' : 'replace',
+    }))
+  }
+
+  async function applyProposal(proposal: BriefProposal) {
+    const action   = proposalActions[proposal.key] ?? proposal.action
+    const existing = data[proposal.key]?.trim()
+    const newVal   = action === 'append' && existing
+      ? `${existing}\n${proposal.content}`
+      : proposal.content
+
+    setData(d => ({ ...d, [proposal.key]: newVal }))
+    await supabase.from('clients').update({ [proposal.key]: newVal }).eq('id', client.id)
+    setPendingProposals(prev => prev.filter(p => p.key !== proposal.key))
+    setPopSections(new Set([proposal.key]))
+    setTimeout(() => setPopSections(new Set()), 1800)
+  }
+
+  async function applyAllProposals() {
+    if (pendingProposals.length === 0) return
+    setApplyingAll(true)
+    const updates: Partial<BriefData> = {}
+    const newData = { ...data }
+    const filled  = new Set<keyof BriefData>()
+
+    for (const proposal of pendingProposals) {
+      const action   = proposalActions[proposal.key] ?? proposal.action
+      const existing = data[proposal.key]?.trim()
+      const newVal   = action === 'append' && existing
+        ? `${existing}\n${proposal.content}`
+        : proposal.content
+      newData[proposal.key] = newVal
+      updates[proposal.key] = newVal
+      filled.add(proposal.key)
+    }
+
+    setData(newData)
+    await supabase.from('clients').update(updates).eq('id', client.id)
+    setPendingProposals([])
+    setApplyingAll(false)
+    setPopSections(filled)
+    setTimeout(() => setPopSections(new Set()), 1800)
+  }
+
+  function dismissProposal(key: keyof BriefData) {
+    setPendingProposals(prev => prev.filter(p => p.key !== key))
+  }
+
+  // ── Task actions ───────────────────────────────────────────────────────────
 
   function updateTask(id: string, patch: Partial<DetectedTask>) {
     setDetectedTasks(prev => prev.map(t => t._id === id ? { ...t, ...patch } : t))
@@ -234,24 +355,50 @@ export function ClientBrief({ client }: { client: Client }) {
     setDetectedTasks(prev => prev.filter(t => t._id !== id))
   }
 
-  async function createTask(task: DetectedTask) {
-    setCreatingId(task._id)
-    await supabase.from('tasks').insert({
+  async function _insertTask(task: DetectedTask): Promise<boolean> {
+    const { error } = await supabase.from('tasks').insert({
       client_id:   client.id,
-      title:       task.title,
-      description: task.description,
+      title:       task.title.trim(),
+      description: task.description || '',
       priority:    task.priority,
       due_date:    task.due_date || null,
-      assignee:    task.assignee,
+      assignee:    task.assignee || '',
       status:      'pending',
     })
+    if (error) {
+      console.error('[createTask]', error.message, error.details)
+      return false
+    }
+    return true
+  }
+
+  async function createTask(task: DetectedTask) {
+    if (!task.title.trim()) return
+    setCreatingId(task._id)
+    const ok = await _insertTask(task)
     setCreatingId(null)
-    setCreatedIds(prev => new Set([...prev, task._id]))
+    if (ok) {
+      setCreatedIds(prev => new Set([...prev, task._id]))
+      onTaskCreated?.()
+    } else {
+      alert('No se pudo crear la tarea. Revisá la consola para más detalles.')
+    }
   }
 
   async function createAllTasks() {
-    const pending = detectedTasks.filter(t => !createdIds.has(t._id))
-    for (const t of pending) await createTask(t)
+    const pending = detectedTasks.filter(t => !createdIds.has(t._id) && t.title.trim())
+    if (pending.length === 0) return
+    setCreatingAll(true)
+    let anyOk = false
+    for (const t of pending) {
+      const ok = await _insertTask(t)
+      if (ok) {
+        setCreatedIds(prev => new Set([...prev, t._id]))
+        anyOk = true
+      }
+    }
+    setCreatingAll(false)
+    if (anyOk) onTaskCreated?.()
   }
 
   const pendingTasks  = detectedTasks.filter(t => !createdIds.has(t._id))
@@ -279,14 +426,15 @@ export function ClientBrief({ client }: { client: Client }) {
               onClick={startRecording}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white' }}
-              title="Dictá el estado del cliente — la IA rellena la ficha y detecta tareas"
+              title="Dictá el estado del cliente — la IA razona y propone cambios"
             >
               <Mic className="w-3.5 h-3.5" /> Dictar con IA
             </button>
           )}
 
           {voiceState === 'recording' && (
-            <button onClick={stopRecording} className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer"
+            <button onClick={stopRecording}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer"
               style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
               <div className="flex items-end gap-px h-3.5">
                 {[0.5, 1, 0.7, 0.9, 0.6, 1, 0.4].map((h, i) => (
@@ -332,55 +480,165 @@ export function ClientBrief({ client }: { client: Client }) {
         </div>
       )}
 
-      {/* ── Detected tasks panel ─────────────────────────────────────────── */}
+      {/* ── Proposals panel (amber) ─────────────────────────────────────── */}
+      {pendingProposals.length > 0 && (
+        <div className="mx-5 mt-3 rounded-xl overflow-hidden animate-fade-in"
+          style={{ border: '1px solid rgba(251,191,36,0.2)', background: 'rgba(251,191,36,0.04)' }}>
+
+          <div className="flex items-center justify-between px-4 py-2.5 border-b"
+            style={{ borderColor: 'rgba(251,191,36,0.15)', background: 'rgba(251,191,36,0.07)' }}>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5" style={{ color: '#fbbf24' }} />
+              <span className="text-xs font-semibold" style={{ color: '#fbbf24' }}>
+                La IA propone cambios — revisá y aprobá
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-xs font-bold"
+                style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>
+                {pendingProposals.length}
+              </span>
+            </div>
+            {pendingProposals.length > 1 && (
+              <button
+                onClick={applyAllProposals}
+                disabled={applyingAll}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-50"
+                style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>
+                {applyingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                Aplicar todas
+              </button>
+            )}
+          </div>
+
+          <div className="divide-y" style={{ borderColor: 'rgba(251,191,36,0.08)' }}>
+            {pendingProposals.map(proposal => {
+              const currentAction = proposalActions[proposal.key] ?? proposal.action
+              return (
+                <div key={proposal.key} className="px-4 py-3 space-y-2">
+                  {/* Field label + toggle + dismiss */}
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 shrink-0" style={{ color: proposal.color }}>{proposal.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold" style={{ color: proposal.color }}>{proposal.label}</span>
+                        {/* Toggle: replace ↔ append */}
+                        <button
+                          onClick={() => toggleProposalAction(proposal.key)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold border cursor-pointer transition-all"
+                          style={currentAction === 'replace'
+                            ? { color: '#f87171', background: 'rgba(248,113,113,0.1)', borderColor: 'rgba(248,113,113,0.25)' }
+                            : { color: '#34d399', background: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.25)' }
+                          }
+                          title="Click para cambiar cómo se aplica el cambio"
+                        >
+                          {currentAction === 'replace' ? '↺ Reemplazar' : '+ Agregar al final'}
+                        </button>
+                      </div>
+                      <p className="text-xs mt-0.5 italic" style={{ color: 'rgba(255,255,255,0.32)' }}>
+                        {proposal.reason}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => dismissProposal(proposal.key)}
+                      className="shrink-0 w-5 h-5 rounded flex items-center justify-center cursor-pointer transition-all"
+                      style={{ color: 'rgba(255,255,255,0.3)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}>
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {/* Content preview */}
+                  <div className="rounded-lg p-2.5 space-y-1.5"
+                    style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    {currentAction === 'replace' ? (
+                      <>
+                        <p className="text-xs line-through leading-relaxed"
+                          style={{ color: 'rgba(255,255,255,0.2)' }}>
+                          {proposal.existing.length > 120 ? proposal.existing.slice(0, 120) + '…' : proposal.existing}
+                        </p>
+                        <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                          {proposal.content}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.32)' }}>
+                          {proposal.existing.length > 80 ? proposal.existing.slice(0, 80) + '…' : proposal.existing}
+                        </p>
+                        <p className="text-xs leading-relaxed" style={{ color: '#34d399' }}>
+                          + {proposal.content}
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Apply button */}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => applyProposal(proposal)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85"
+                      style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.2)' }}>
+                      <CheckCircle2 className="w-3 h-3" /> Aplicar
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Detected tasks panel (purple) ───────────────────────────────── */}
       {detectedTasks.length > 0 && (
         <div className="mx-5 mt-3 rounded-xl overflow-hidden animate-fade-in"
           style={{ border: '1px solid rgba(167,139,250,0.2)', background: 'rgba(167,139,250,0.05)' }}>
 
-          {/* Panel header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b"
             style={{ borderColor: 'rgba(167,139,250,0.15)', background: 'rgba(167,139,250,0.08)' }}>
             <div className="flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5" style={{ color: '#a78bfa' }} />
-              <span className="text-xs font-semibold" style={{ color: '#a78bfa' }}>
-                Tareas detectadas
-              </span>
+              <span className="text-xs font-semibold" style={{ color: '#a78bfa' }}>Tareas detectadas</span>
               <span className="px-1.5 py-0.5 rounded text-xs font-bold"
                 style={{ background: 'rgba(167,139,250,0.2)', color: '#a78bfa' }}>
                 {detectedTasks.length}
               </span>
             </div>
             {pendingTasks.length > 1 && (
-              <button onClick={createAllTasks}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85"
+              <button
+                onClick={createAllTasks}
+                disabled={creatingAll}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-50"
                 style={{ background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white' }}>
-                <Plus className="w-3 h-3" /> Crear todas ({pendingTasks.length})
+                {creatingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                Crear todas ({pendingTasks.length})
               </button>
             )}
           </div>
 
-          {/* Task rows */}
           <div className="divide-y" style={{ borderColor: 'rgba(167,139,250,0.1)' }}>
             {detectedTasks.map(task => {
               const isCreated  = createdIds.has(task._id)
-              const isCreating = creatingId === task._id
+              const isCreating = creatingId === task._id || creatingAll
               const pc         = PRIORITY_CONFIG[task.priority]
 
               return (
                 <div key={task._id} className="px-4 py-3 space-y-2"
                   style={{ opacity: isCreated ? 0.55 : 1, transition: 'opacity 0.3s' }}>
 
-                  {/* Row 1: title + dismiss */}
                   <div className="flex items-start gap-2">
                     <input
                       value={task.title}
                       onChange={e => updateTask(task._id, { title: e.target.value })}
                       disabled={isCreated}
                       className="flex-1 text-sm font-medium outline-none bg-transparent"
-                      style={{ color: isCreated ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)', textDecoration: isCreated ? 'line-through' : 'none' }}
+                      style={{
+                        color: isCreated ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)',
+                        textDecoration: isCreated ? 'line-through' : 'none',
+                      }}
                     />
                     {!isCreated && (
-                      <button onClick={() => dismissTask(task._id)}
+                      <button
+                        onClick={() => dismissTask(task._id)}
                         className="shrink-0 w-5 h-5 rounded flex items-center justify-center cursor-pointer transition-all"
                         style={{ color: 'rgba(255,255,255,0.3)' }}
                         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
@@ -390,20 +648,17 @@ export function ClientBrief({ client }: { client: Client }) {
                     )}
                   </div>
 
-                  {/* Row 2: chips + create button */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Priority (clickable to cycle) */}
                     <button
                       onClick={() => !isCreated && updateTask(task._id, { priority: pc.next })}
+                      disabled={isCreated}
                       className="flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border cursor-pointer"
                       style={{ color: pc.color, background: `${pc.color}18`, borderColor: `${pc.color}30` }}
                       title="Click para cambiar prioridad"
-                      disabled={isCreated}
                     >
                       {pc.label}
                     </button>
 
-                    {/* Due date */}
                     <div className="flex items-center gap-1">
                       <Calendar className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.3)' }} />
                       <input
@@ -412,11 +667,14 @@ export function ClientBrief({ client }: { client: Client }) {
                         onChange={e => updateTask(task._id, { due_date: e.target.value })}
                         disabled={isCreated}
                         className="text-xs outline-none bg-transparent"
-                        style={{ color: task.due_date ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.2)', colorScheme: 'dark', width: task.due_date ? 'auto' : '75px' }}
+                        style={{
+                          color: task.due_date ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.2)',
+                          colorScheme: 'dark',
+                          width: task.due_date ? 'auto' : '75px',
+                        }}
                       />
                     </div>
 
-                    {/* Assignee */}
                     <div className="flex items-center gap-1 flex-1 min-w-0">
                       <User className="w-3 h-3 shrink-0" style={{ color: 'rgba(255,255,255,0.3)' }} />
                       <input
@@ -429,7 +687,6 @@ export function ClientBrief({ client }: { client: Client }) {
                       />
                     </div>
 
-                    {/* Action */}
                     <div className="ml-auto shrink-0">
                       {isCreated ? (
                         <span className="flex items-center gap-1 text-xs" style={{ color: '#34d399' }}>
@@ -440,8 +697,7 @@ export function ClientBrief({ client }: { client: Client }) {
                           onClick={() => createTask(task)}
                           disabled={isCreating || !task.title.trim()}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85 disabled:opacity-50"
-                          style={{ background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white' }}
-                        >
+                          style={{ background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white' }}>
                           {isCreating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
                           {isCreating ? 'Creando...' : 'Crear tarea'}
                         </button>
@@ -449,7 +705,6 @@ export function ClientBrief({ client }: { client: Client }) {
                     </div>
                   </div>
 
-                  {/* Description input (if any) */}
                   {task.description && !isCreated && (
                     <input
                       value={task.description}
@@ -469,17 +724,20 @@ export function ClientBrief({ client }: { client: Client }) {
       {/* Brief sections grid */}
       <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-2.5">
         {SECTIONS.map(section => (
-          <div key={section.key}
+          <div
+            key={section.key}
             className={`rounded-xl overflow-hidden ${section.span === 'full' ? 'md:col-span-2' : ''}`}
             style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderLeft: `3px solid ${section.color}`,
-              animation: popSections.has(section.key) ? 'briefPop 1.4s ease' : 'none',
+              background:  'rgba(255,255,255,0.03)',
+              border:      '1px solid rgba(255,255,255,0.06)',
+              borderLeft:  `3px solid ${section.color}`,
+              animation:   popSections.has(section.key) ? 'briefPop 1.4s ease' : 'none',
             }}
           >
-            <div className="flex items-center justify-between px-4 py-2 border-b"
-              style={{ borderColor: 'rgba(255,255,255,0.05)', background: `linear-gradient(135deg, ${section.glow}, transparent)` }}>
+            <div
+              className="flex items-center justify-between px-4 py-2 border-b"
+              style={{ borderColor: 'rgba(255,255,255,0.05)', background: `linear-gradient(135deg, ${section.glow}, transparent)` }}
+            >
               <div className="flex items-center gap-2">
                 <span style={{ color: section.color }}>{section.icon}</span>
                 <div>
@@ -509,7 +767,13 @@ export function ClientBrief({ client }: { client: Client }) {
               placeholder={section.placeholder}
               rows={3}
               className="w-full resize-none outline-none text-sm leading-relaxed block"
-              style={{ background: 'transparent', color: 'rgba(255,255,255,0.78)', padding: '10px 16px', caretColor: section.color, minHeight: '80px' }}
+              style={{
+                background: 'transparent',
+                color:      'rgba(255,255,255,0.78)',
+                padding:    '10px 16px',
+                caretColor: section.color,
+                minHeight:  '80px',
+              }}
             />
           </div>
         ))}
