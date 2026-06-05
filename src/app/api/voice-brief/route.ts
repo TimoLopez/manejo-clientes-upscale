@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 
 export async function POST(req: NextRequest) {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.openai_api_key
+
+  if (!apiKey) {
     return NextResponse.json({ error: 'OPENAI_API_KEY no configurada' }, { status: 503 })
   }
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    const openai = new OpenAI({ apiKey })
 
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File | null
