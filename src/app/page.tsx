@@ -5,12 +5,10 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Client, ClientStatus, Task } from '@/types/database'
 import { ClientStatusBadge } from '@/components/ClientStatusBadge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ClientForm } from '@/components/ClientForm'
 import { formatDate, isOverdue } from '@/lib/utils'
-import { Users, CheckCircle, Clock, AlertCircle, Plus } from 'lucide-react'
+import { Users, CheckCircle, Clock, AlertCircle, Plus, ArrowRight, ChevronRight } from 'lucide-react'
 
 const STATUS_OPTIONS: { value: ClientStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -19,6 +17,78 @@ const STATUS_OPTIONS: { value: ClientStatus | 'all'; label: string }[] = [
   { value: 'paused', label: 'Pausado' },
   { value: 'finished', label: 'Finalizado' },
 ]
+
+function useCountUp(target: number, delay = 0) {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (target === 0) { setCount(0); return }
+    const timeout = setTimeout(() => {
+      let start = 0
+      const duration = 700
+      const steps = 40
+      const step = target / steps
+      const interval = duration / steps
+      const timer = setInterval(() => {
+        start += step
+        if (start >= target) { setCount(target); clearInterval(timer) }
+        else setCount(Math.floor(start))
+      }, interval)
+      return () => clearInterval(timer)
+    }, delay)
+    return () => clearTimeout(timeout)
+  }, [target, delay])
+  return count
+}
+
+function getInitials(name: string) {
+  return name.trim().split(/\s+/).map(n => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
+interface StatCardProps {
+  value: number
+  label: string
+  icon: React.ReactNode
+  gradient: string
+  delay?: number
+  animDelay?: string
+}
+
+function StatCard({ value, label, icon, gradient, delay = 0, animDelay = '0s' }: StatCardProps) {
+  const count = useCountUp(value, delay)
+  return (
+    <div
+      className="glass rounded-2xl p-5 animate-fade-in-up gradient-border cursor-default"
+      style={{ animationDelay: animDelay }}
+    >
+      <div
+        className="w-11 h-11 rounded-xl flex items-center justify-center mb-4"
+        style={{ background: gradient }}
+      >
+        {icon}
+      </div>
+      <p className="text-3xl font-bold" style={{ color: 'rgba(255,255,255,0.95)' }}>
+        {count}
+      </p>
+      <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+        {label}
+      </p>
+    </div>
+  )
+}
+
+function SkeletonCard() {
+  return (
+    <div className="glass rounded-xl p-4 animate-fade-in">
+      <div className="flex items-center gap-3">
+        <div className="skeleton w-10 h-10 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <div className="skeleton h-3.5 w-1/2 rounded" />
+          <div className="skeleton h-3 w-1/3 rounded" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function DashboardPage() {
   const [clients, setClients] = useState<Client[]>([])
@@ -55,130 +125,206 @@ export default function DashboardPage() {
     return upcoming[0]?.due_date ?? null
   }
 
+  const avatarGradients = [
+    'linear-gradient(135deg, #7c3aed, #0891b2)',
+    'linear-gradient(135deg, #db2777, #7c3aed)',
+    'linear-gradient(135deg, #0891b2, #059669)',
+    'linear-gradient(135deg, #d97706, #db2777)',
+    'linear-gradient(135deg, #059669, #0891b2)',
+  ]
+
   return (
     <>
       <div className="space-y-8">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <Users className="w-8 h-8 text-slate-500" />
-                <div>
-                  <p className="text-2xl font-bold">{clients.length}</p>
-                  <p className="text-sm text-slate-500">Total clientes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="w-8 h-8 text-green-500" />
-                <div>
-                  <p className="text-2xl font-bold">{activeClients}</p>
-                  <p className="text-sm text-slate-500">Clientes activos</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <Clock className="w-8 h-8 text-blue-500" />
-                <div>
-                  <p className="text-2xl font-bold">{pendingTasks}</p>
-                  <p className="text-sm text-slate-500">Tareas pendientes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-                <div>
-                  <p className="text-2xl font-bold">{overdueTasks}</p>
-                  <p className="text-sm text-slate-500">Vencidas</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Header */}
+        <div className="animate-fade-in-up">
+          <h1 className="text-2xl font-bold" style={{ color: 'rgba(255,255,255,0.95)' }}>
+            Dashboard
+          </h1>
+          <p className="text-sm mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Gestión de clientes y tareas de tu agencia
+          </p>
         </div>
 
-        {/* Clients Table */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Clientes</CardTitle>
-            <Button onClick={() => setShowNewClient(true)} size="sm">
-              <Plus className="w-4 h-4 mr-1" /> Nuevo cliente
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {/* Filters */}
-            <div className="flex gap-2 mb-4 flex-wrap">
-              {STATUS_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={`px-3 py-1 rounded-full text-sm border transition-colors ${
-                    filter === opt.value
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard
+            value={clients.length}
+            label="Total clientes"
+            icon={<Users className="w-5 h-5 text-white" />}
+            gradient="linear-gradient(135deg, #7c3aed, #6d28d9)"
+            animDelay="0.05s"
+            delay={0}
+          />
+          <StatCard
+            value={activeClients}
+            label="Clientes activos"
+            icon={<CheckCircle className="w-5 h-5 text-white" />}
+            gradient="linear-gradient(135deg, #059669, #0891b2)"
+            animDelay="0.1s"
+            delay={80}
+          />
+          <StatCard
+            value={pendingTasks}
+            label="Tareas pendientes"
+            icon={<Clock className="w-5 h-5 text-white" />}
+            gradient="linear-gradient(135deg, #0891b2, #7c3aed)"
+            animDelay="0.15s"
+            delay={160}
+          />
+          <StatCard
+            value={overdueTasks}
+            label="Tareas vencidas"
+            icon={<AlertCircle className="w-5 h-5 text-white" />}
+            gradient="linear-gradient(135deg, #dc2626, #db2777)"
+            animDelay="0.2s"
+            delay={240}
+          />
+        </div>
 
+        {/* Clients Panel */}
+        <div
+          className="glass rounded-2xl animate-fade-in-up"
+          style={{ animationDelay: '0.25s' }}
+        >
+          {/* Panel Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+            <div>
+              <h2 className="font-semibold" style={{ color: 'rgba(255,255,255,0.9)' }}>Clientes</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                {clients.length} cliente{clients.length !== 1 ? 's' : ''} en total
+              </p>
+            </div>
+            <button
+              onClick={() => setShowNewClient(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold cursor-pointer transition-opacity hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white' }}
+            >
+              <Plus className="w-4 h-4" />
+              Nuevo cliente
+            </button>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex gap-2 px-6 py-3 border-b flex-wrap" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+            {STATUS_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setFilter(opt.value)}
+                className="px-3 py-1 rounded-full text-xs font-semibold cursor-pointer transition-all"
+                style={
+                  filter === opt.value
+                    ? { background: 'linear-gradient(135deg, #7c3aed, #0891b2)', color: 'white', boxShadow: '0 4px 12px rgba(124,58,237,0.4)' }
+                    : { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.08)' }
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* List */}
+          <div className="px-4 py-3">
             {loading ? (
-              <p className="text-slate-400 text-sm py-8 text-center">Cargando...</p>
+              <div className="space-y-2 p-2">
+                {[0, 1, 2].map(i => <SkeletonCard key={i} />)}
+              </div>
             ) : filtered.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">No hay clientes aún</p>
-                <p className="text-sm mt-1">Crea tu primer cliente con el botón de arriba</p>
+              <div className="text-center py-14">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                  style={{ background: 'rgba(255,255,255,0.05)' }}
+                >
+                  <Users className="w-8 h-8" style={{ color: 'rgba(255,255,255,0.2)' }} />
+                </div>
+                <p className="font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  No hay clientes aún
+                </p>
+                <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                  Crea tu primer cliente con el botón de arriba
+                </p>
               </div>
             ) : (
-              <div className="divide-y">
-                {filtered.map(client => (
-                  <Link
-                    key={client.id}
-                    href={`/clients/${client.id}`}
-                    className="flex items-center justify-between py-3 px-2 hover:bg-slate-50 rounded-md transition-colors group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900 group-hover:text-blue-600 transition-colors">
+              <div className="space-y-1.5">
+                {filtered.map((client, idx) => {
+                  const pending = getClientPendingCount(client.id)
+                  const nextDue = getClientNextDue(client.id)
+                  const grad = avatarGradients[idx % avatarGradients.length]
+                  return (
+                    <Link
+                      key={client.id}
+                      href={`/clients/${client.id}`}
+                      className="flex items-center gap-3 p-3 rounded-xl cursor-pointer group transition-all"
+                      style={{ transition: 'background 0.18s ease' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {/* Avatar */}
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold text-white"
+                        style={{ background: grad }}
+                      >
+                        {getInitials(client.name)}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate transition-colors" style={{ color: 'rgba(255,255,255,0.85)' }}>
                           {client.name}
                         </p>
-                        <p className="text-sm text-slate-500">{client.company}</p>
+                        {client.company && (
+                          <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.38)' }}>
+                            {client.company}
+                          </p>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-slate-500">
-                      <ClientStatusBadge status={client.status} />
-                      <span className="hidden sm:block">
-                        {getClientPendingCount(client.id)} tarea(s) pendiente(s)
-                      </span>
-                      <span className="hidden md:block text-xs">
-                        Próx: {formatDate(getClientNextDue(client.id))}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
+
+                      {/* Meta */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <ClientStatusBadge status={client.status} />
+                        {pending > 0 && (
+                          <span
+                            className="hidden sm:flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+                            style={{ background: 'rgba(167,139,250,0.2)', color: '#a78bfa' }}
+                          >
+                            {pending}
+                          </span>
+                        )}
+                        {nextDue && (
+                          <span className="hidden md:block text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                            {formatDate(nextDue)}
+                          </span>
+                        )}
+                        <ChevronRight
+                          className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ color: 'rgba(255,255,255,0.4)' }}
+                        />
+                      </div>
+                    </Link>
+                  )
+                })}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       <Dialog open={showNewClient} onOpenChange={setShowNewClient}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg border"
+          style={{
+            background: 'rgba(15, 12, 35, 0.95)',
+            backdropFilter: 'blur(30px)',
+            borderColor: 'rgba(255,255,255,0.1)',
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>Nuevo cliente</DialogTitle>
+            <DialogTitle style={{ color: 'rgba(255,255,255,0.9)' }}>Nuevo cliente</DialogTitle>
           </DialogHeader>
-          <ClientForm onSuccess={() => { setShowNewClient(false); load() }} onCancel={() => setShowNewClient(false)} />
+          <ClientForm
+            onSuccess={() => { setShowNewClient(false); load() }}
+            onCancel={() => setShowNewClient(false)}
+          />
         </DialogContent>
       </Dialog>
     </>

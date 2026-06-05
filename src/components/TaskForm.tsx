@@ -3,17 +3,34 @@
 import { useState } from 'react'
 import { Task, TaskPriority, TaskStatus } from '@/types/database'
 import { supabase } from '@/lib/supabase'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface TaskFormProps {
   clientId: string
   task?: Task
   onSuccess: () => void
   onCancel: () => void
+}
+
+const inputStyle = {
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: '0.5rem',
+  color: 'rgba(255,255,255,0.9)',
+  padding: '0.5rem 0.75rem',
+  width: '100%',
+  outline: 'none',
+  fontSize: '0.875rem',
+  transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+}
+
+const labelStyle = {
+  display: 'block',
+  fontSize: '0.75rem',
+  fontWeight: '500',
+  color: 'rgba(255,255,255,0.5)',
+  marginBottom: '0.375rem',
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.05em',
 }
 
 export function TaskForm({ clientId, task, onSuccess, onCancel }: TaskFormProps) {
@@ -26,6 +43,15 @@ export function TaskForm({ clientId, task, onSuccess, onCancel }: TaskFormProps)
     assignee: task?.assignee ?? '',
     status: task?.status ?? 'pending' as TaskStatus,
   })
+
+  function handleFocus(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    e.target.style.borderColor = 'rgba(167,139,250,0.5)'
+    e.target.style.boxShadow = '0 0 0 3px rgba(167,139,250,0.1)'
+  }
+  function handleBlur(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    e.target.style.borderColor = 'rgba(255,255,255,0.1)'
+    e.target.style.boxShadow = 'none'
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,51 +66,112 @@ export function TaskForm({ clientId, task, onSuccess, onCancel }: TaskFormProps)
     onSuccess()
   }
 
+  const sharedProps = {
+    style: inputStyle,
+    onFocus: handleFocus,
+    onBlur: handleBlur,
+  }
+
+  const selectStyle = { ...inputStyle, cursor: 'pointer' }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-1">
-        <Label>Título</Label>
-        <Input required value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+      <div>
+        <label style={labelStyle}>Título *</label>
+        <input
+          required
+          value={form.title}
+          onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+          placeholder="Nombre de la tarea"
+          {...sharedProps}
+        />
       </div>
-      <div className="space-y-1">
-        <Label>Descripción</Label>
-        <Textarea rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+      <div>
+        <label style={labelStyle}>Descripción</label>
+        <textarea
+          rows={2}
+          value={form.description}
+          onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+          placeholder="Detalles opcionales..."
+          style={{ ...inputStyle, resize: 'vertical' }}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+        />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <Label>Prioridad</Label>
-          <Select value={form.priority} onValueChange={v => setForm(f => ({ ...f, priority: v as TaskPriority }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="low">Baja</SelectItem>
-              <SelectItem value="medium">Media</SelectItem>
-              <SelectItem value="high">Alta</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label style={labelStyle}>Prioridad</label>
+          <select
+            value={form.priority}
+            onChange={e => setForm(f => ({ ...f, priority: e.target.value as TaskPriority }))}
+            style={selectStyle}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+          >
+            <option value="low" style={{ background: '#0f0f1a' }}>Baja</option>
+            <option value="medium" style={{ background: '#0f0f1a' }}>Media</option>
+            <option value="high" style={{ background: '#0f0f1a' }}>Alta</option>
+          </select>
         </div>
-        <div className="space-y-1">
-          <Label>Estado</Label>
-          <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as TaskStatus }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">Pendiente</SelectItem>
-              <SelectItem value="in_progress">En progreso</SelectItem>
-              <SelectItem value="done">Hecho</SelectItem>
-            </SelectContent>
-          </Select>
+        <div>
+          <label style={labelStyle}>Estado</label>
+          <select
+            value={form.status}
+            onChange={e => setForm(f => ({ ...f, status: e.target.value as TaskStatus }))}
+            style={selectStyle}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+          >
+            <option value="pending" style={{ background: '#0f0f1a' }}>Pendiente</option>
+            <option value="in_progress" style={{ background: '#0f0f1a' }}>En progreso</option>
+            <option value="done" style={{ background: '#0f0f1a' }}>Hecho</option>
+          </select>
         </div>
-        <div className="space-y-1">
-          <Label>Fecha límite</Label>
-          <Input type="date" value={form.due_date ?? ''} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
+        <div>
+          <label style={labelStyle}>Fecha límite</label>
+          <input
+            type="date"
+            value={form.due_date ?? ''}
+            onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
+            {...sharedProps}
+            style={{ ...inputStyle, colorScheme: 'dark' }}
+          />
         </div>
-        <div className="space-y-1">
-          <Label>Asignado a</Label>
-          <Input value={form.assignee} onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))} />
+        <div>
+          <label style={labelStyle}>Asignado a</label>
+          <input
+            value={form.assignee}
+            onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))}
+            placeholder="Nombre del responsable"
+            {...sharedProps}
+          />
         </div>
       </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
-        <Button type="submit" disabled={loading}>{loading ? 'Guardando...' : task ? 'Guardar cambios' : 'Crear tarea'}</Button>
+      <div className="flex gap-2 justify-end pt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'rgba(255,255,255,0.7)',
+          }}
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+          style={{
+            background: 'linear-gradient(135deg, #7c3aed, #0891b2)',
+            color: 'white',
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          {loading ? 'Guardando...' : task ? 'Guardar cambios' : 'Crear tarea'}
+        </button>
       </div>
     </form>
   )
