@@ -11,6 +11,12 @@ export interface Client {
   status: ClientStatus
   notes: string
   created_at: string
+  // Brief / ficha fields
+  last_action?: string | null
+  pending_notes?: string | null
+  next_steps?: string | null
+  future_steps?: string | null
+  ideas?: string | null
 }
 
 export interface Task {
@@ -39,6 +45,11 @@ export interface Database {
           status?: ClientStatus
           notes?: string
           created_at?: string
+          last_action?: string | null
+          pending_notes?: string | null
+          next_steps?: string | null
+          future_steps?: string | null
+          ideas?: string | null
         }
         Update: {
           id?: string
@@ -49,6 +60,11 @@ export interface Database {
           status?: ClientStatus
           notes?: string
           created_at?: string
+          last_action?: string | null
+          pending_notes?: string | null
+          next_steps?: string | null
+          future_steps?: string | null
+          ideas?: string | null
         }
         Relationships: []
       }
