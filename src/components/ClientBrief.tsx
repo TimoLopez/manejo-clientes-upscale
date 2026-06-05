@@ -2,10 +2,10 @@
 
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Client, TaskPriority } from '@/types/database'
+import { Client, TaskPriority, BriefHistoryEntry } from '@/types/database'
 import {
   CheckCircle2, Loader2, ArrowRight, Telescope, Lightbulb, Save,
-  Mic, MicOff, Sparkles, AlertCircle, X, Plus, Calendar, User,
+  Mic, MicOff, Sparkles, AlertCircle, X, Plus, Calendar, User, History, ChevronDown, ChevronUp,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -106,6 +106,15 @@ function truncateLines(text: string, max: number) {
   return lines.slice(0, max).join('\n') + `\n… (+${lines.length - max} más)`
 }
 
+function timeAgo(dateStr: string): string {
+  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000
+  if (diff < 60)      return 'ahora'
+  if (diff < 3600)    return `hace ${Math.floor(diff / 60)}min`
+  if (diff < 86400)   return `hace ${Math.floor(diff / 3600)}h`
+  if (diff < 604800)  return `hace ${Math.floor(diff / 86400)}d`
+  return new Date(dateStr).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+}
+
 let _taskIdCounter = 0
 function nextId() { return `dt-${++_taskIdCounter}` }
 
@@ -151,10 +160,52 @@ export function ClientBrief({
   const [creatingId, setCreatingId]       = useState<string | null>(null)
   const [creatingAll, setCreatingAll]     = useState(false)
 
+  // Brief history
+  const [showHistory, setShowHistory]         = useState(false)
+  const [history, setHistory]                 = useState<BriefHistoryEntry[]>([])
+  const [loadingHistory, setLoadingHistory]   = useState(false)
+  const [historyLoaded, setHistoryLoaded]     = useState(false)
+
   // Auto-resize textareas when data changes
   useEffect(() => {
     SECTIONS.forEach(s => autoResize(textRefs.current[s.key]))
   }, [data])
+
+  // ── History ────────────────────────────────────────────────────────────────
+
+  async function fetchHistory() {
+    setLoadingHistory(true)
+    const { data } = await supabase
+      .from('brief_history')
+      .select('*')
+      .eq('client_id', client.id)
+      .order('changed_at', { ascending: false })
+      .limit(50)
+    setHistory(data ?? [])
+    setLoadingHistory(false)
+    setHistoryLoaded(true)
+  }
+
+  async function toggleHistory() {
+    if (!showHistory && !historyLoaded) await fetchHistory()
+    setShowHistory(prev => !prev)
+  }
+
+  function logChange(key: keyof BriefData, value: string) {
+    if (!value.trim()) return
+    const label = SECTIONS.find(s => s.key === key)?.label ?? key
+    supabase.from('brief_history').insert({
+      client_id:   client.id,
+      field:       key,
+      field_label: label,
+      value,
+    }).then(({ data }) => {
+      // Prepend to in-memory history if panel is open
+      if (data && showHistory) {
+        setHistory(prev => [data[0] as BriefHistoryEntry, ...prev].slice(0, 50))
+      }
+    })
+  }
 
   // ── Manual edit ────────────────────────────────────────────────────────────
 
@@ -167,10 +218,12 @@ export function ClientBrief({
     if (!dirty.current.has(key)) return
     dirty.current.delete(key)
     setSaving(key)
-    await supabase.from('clients').update({ [key]: data[key] }).eq('id', client.id)
+    const { error } = await supabase.from('clients').update({ [key]: data[key] }).eq('id', client.id)
+    if (!error) logChange(key, data[key])
     setSaving(null)
     setSaved(key)
     setTimeout(() => setSaved(s => s === key ? null : s), 2200)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, client.id])
 
   // ── Voice recording ────────────────────────────────────────────────────────
@@ -315,7 +368,8 @@ export function ClientBrief({
       : proposal.content
 
     setData(d => ({ ...d, [proposal.key]: newVal }))
-    await supabase.from('clients').update({ [proposal.key]: newVal }).eq('id', client.id)
+    const { error } = await supabase.from('clients').update({ [proposal.key]: newVal }).eq('id', client.id)
+    if (!error) logChange(proposal.key, newVal)
     setPendingProposals(prev => prev.filter(p => p.key !== proposal.key))
     setPopSections(new Set([proposal.key]))
     setTimeout(() => setPopSections(new Set()), 1800)
@@ -340,7 +394,12 @@ export function ClientBrief({
     }
 
     setData(newData)
-    await supabase.from('clients').update(updates).eq('id', client.id)
+    const { error } = await supabase.from('clients').update(updates).eq('id', client.id)
+    if (!error) {
+      for (const key of Object.keys(updates) as (keyof BriefData)[]) {
+        logChange(key, updates[key] ?? '')
+      }
+    }
     setPendingProposals([])
     setApplyingAll(false)
     setPopSections(filled)
@@ -795,10 +854,85 @@ export function ClientBrief({
       </div>
 
       {!hasAnyContent && voiceState === 'idle' && (
-        <p className="text-xs text-center pb-3" style={{ color: 'rgba(255,255,255,0.18)' }}>
+        <p className="text-xs text-center pb-1" style={{ color: 'rgba(255,255,255,0.18)' }}>
           Escribí directamente o usá &ldquo;Dictar con IA&rdquo; para hablar y que la IA rellene todo
         </p>
       )}
+
+      {/* ── Brief history ────────────────────────────────────────────────── */}
+      <div className="border-t mx-5 mb-4" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <button
+          onClick={toggleHistory}
+          className="w-full flex items-center gap-2 py-3 text-xs cursor-pointer transition-all group"
+          style={{ color: 'rgba(255,255,255,0.3)' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.55)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
+        >
+          {loadingHistory
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <History className="w-3.5 h-3.5" />
+          }
+          <span className="font-medium">Historial de cambios</span>
+          {historyLoaded && history.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded text-xs font-bold"
+              style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)' }}>
+              {history.length}
+            </span>
+          )}
+          <span className="ml-auto">
+            {showHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </span>
+        </button>
+
+        {showHistory && (
+          <div className="space-y-px pb-2 animate-fade-in">
+            {loadingHistory ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'rgba(255,255,255,0.25)' }} />
+              </div>
+            ) : history.length === 0 ? (
+              <p className="text-xs text-center py-5" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                Sin historial todavía — los cambios se registran al guardar
+              </p>
+            ) : (
+              history.map(entry => {
+                const section = SECTIONS.find(s => s.key === entry.field)
+                const color   = section?.color ?? '#94a3b8'
+                const lines   = entry.value.split('\n').filter(Boolean)
+                return (
+                  <div key={entry.id}
+                    className="flex items-start gap-2.5 py-2 px-2 rounded-lg transition-all"
+                    style={{ background: 'rgba(255,255,255,0.01)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.01)')}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: color }} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-semibold" style={{ color }}>{entry.field_label}</span>
+                      <div className="mt-0.5 space-y-0.5">
+                        {lines.slice(0, 3).map((line, i) => (
+                          <p key={i} className="text-xs leading-relaxed truncate"
+                            style={{ color: 'rgba(255,255,255,0.38)' }}>
+                            {line}
+                          </p>
+                        ))}
+                        {lines.length > 3 && (
+                          <p className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                            +{lines.length - 3} líneas más
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs shrink-0 mt-0.5" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                      {timeAgo(entry.changed_at)}
+                    </span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

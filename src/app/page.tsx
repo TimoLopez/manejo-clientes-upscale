@@ -122,6 +122,8 @@ export default function DashboardPage() {
   const pendingTasks = tasks.filter(t => t.status !== 'done').length
   const overdueTasks = tasks.filter(t => t.status !== 'done' && isOverdue(t.due_date)).length
 
+  const today = new Date().toISOString().split('T')[0]
+
   function getClientPendingCount(clientId: string) {
     return tasks.filter(t => t.client_id === clientId && t.status !== 'done').length
   }
@@ -131,6 +133,13 @@ export default function DashboardPage() {
       .filter(t => t.client_id === clientId && t.status !== 'done' && t.due_date)
       .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
     return upcoming[0]?.due_date ?? null
+  }
+
+  function getClientAlerts(clientId: string) {
+    const active = tasks.filter(t => t.client_id === clientId && t.status !== 'done')
+    const hasOverdue = active.some(t => t.due_date && t.due_date < today)
+    const hasHigh = active.some(t => t.priority === 'high')
+    return { hasOverdue, hasHigh }
   }
 
   const clientTaskCount = (clientId: string) =>
@@ -209,15 +218,28 @@ export default function DashboardPage() {
                 {filtered.map((client, idx) => {
                   const pending = getClientPendingCount(client.id)
                   const nextDue = getClientNextDue(client.id)
+                  const { hasOverdue, hasHigh } = getClientAlerts(client.id)
                   const grad = avatarGradients[idx % avatarGradients.length]
                   return (
                     <div key={client.id} className="group relative flex items-center gap-3 p-3 rounded-xl transition-all" style={{ transition: 'background 0.18s ease' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      {/* Avatar */}
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold text-white" style={{ background: grad }}>
-                        {getInitials(client.name)}
+                      {/* Avatar with alert dot */}
+                      <div className="relative w-10 h-10 shrink-0">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style={{ background: grad }}>
+                          {getInitials(client.name)}
+                        </div>
+                        {hasOverdue && (
+                          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2"
+                            style={{ background: '#f87171', borderColor: 'rgba(10,8,22,1)', boxShadow: '0 0 6px rgba(248,113,113,0.7)' }}
+                            title="Tiene tareas vencidas" />
+                        )}
+                        {!hasOverdue && hasHigh && (
+                          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2"
+                            style={{ background: '#fb923c', borderColor: 'rgba(10,8,22,1)', boxShadow: '0 0 6px rgba(251,146,60,0.6)' }}
+                            title="Tiene tareas de alta prioridad" />
+                        )}
                       </div>
 
                       {/* Clickable area */}

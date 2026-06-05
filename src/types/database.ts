@@ -31,6 +31,15 @@ export interface Task {
   created_at: string
 }
 
+export interface BriefHistoryEntry {
+  id:          string
+  client_id:   string
+  field:       string
+  field_label: string
+  value:       string
+  changed_at:  string
+}
+
 export interface Database {
   public: {
     Tables: {

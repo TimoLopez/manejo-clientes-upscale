@@ -1,7 +1,12 @@
+'use client'
+
 import Link from 'next/link'
-import { LayoutDashboard } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { LayoutDashboard, ListTodo } from 'lucide-react'
 
 export function Navbar() {
+  const pathname = usePathname()
+
   return (
     <header
       className="sticky top-0 z-50 border-b"
@@ -36,9 +41,18 @@ export function Navbar() {
         <nav className="flex items-center gap-1">
           <Link
             href="/"
-            className="nav-link px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
+            className="nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
+            style={pathname === '/' ? { color: 'rgba(255,255,255,0.9)', background: 'rgba(255,255,255,0.08)' } : {}}
           >
             Dashboard
+          </Link>
+          <Link
+            href="/tasks"
+            className="nav-link flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all"
+            style={pathname === '/tasks' ? { color: 'rgba(255,255,255,0.9)', background: 'rgba(255,255,255,0.08)' } : {}}
+          >
+            <ListTodo className="w-3.5 h-3.5" />
+            Tareas
           </Link>
         </nav>
       </div>

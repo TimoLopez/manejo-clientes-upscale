@@ -1,0 +1,76 @@
+-- ============================================================
+-- UPSCALE CRM — SQL para correr en Supabase SQL Editor
+-- ============================================================
+
+
+-- ------------------------------------------------------------
+-- 1. CREAR TABLAS (si no existen todavia)
+-- ------------------------------------------------------------
+
+create table if not exists clients (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  company    text default '',
+  email      text default '',
+  phone      text default '',
+  status     text check (status in ('lead','active','paused','finished')) default 'lead',
+  notes      text default '',
+  created_at timestamptz default now()
+);
+
+create table if not exists tasks (
+  id          uuid primary key default gen_random_uuid(),
+  client_id   uuid references clients(id) on delete cascade not null,
+  title       text not null,
+  description text default '',
+  priority    text check (priority in ('low','medium','high')) default 'medium',
+  due_date    date,
+  assignee    text default '',
+  status      text check (status in ('pending','in_progress','done')) default 'pending',
+  created_at  timestamptz default now()
+);
+
+
+-- ------------------------------------------------------------
+-- 2. AGREGAR COLUMNAS DE LA FICHA DEL CLIENTE
+--    (si las tablas ya existian, correr solo esto)
+-- ------------------------------------------------------------
+
+alter table clients
+  add column if not exists last_action   text default '',
+  add column if not exists pending_notes text default '',
+  add column if not exists next_steps    text default '',
+  add column if not exists future_steps  text default '',
+  add column if not exists ideas         text default '';
+
+
+-- ------------------------------------------------------------
+-- 3. HISTORIAL DE CAMBIOS EN LA FICHA (NUEVO)
+-- ------------------------------------------------------------
+
+create table if not exists brief_history (
+  id          uuid primary key default gen_random_uuid(),
+  client_id   uuid references clients(id) on delete cascade not null,
+  field       text not null,
+  field_label text not null,
+  value       text not null,
+  changed_at  timestamptz default now()
+);
+
+create index if not exists brief_history_client_idx
+  on brief_history(client_id, changed_at desc);
+
+
+-- ------------------------------------------------------------
+-- 4. DESHABILITAR RLS (Row Level Security)
+--    Necesario para que la app pueda leer/escribir sin auth
+-- ------------------------------------------------------------
+
+alter table clients       disable row level security;
+alter table tasks         disable row level security;
+alter table brief_history disable row level security;
+
+
+-- ------------------------------------------------------------
+-- FIN
+-- ============================================================
