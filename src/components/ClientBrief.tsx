@@ -100,6 +100,12 @@ function formatSeconds(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+function truncateLines(text: string, max: number) {
+  const lines = text.split('\n')
+  if (lines.length <= max) return text
+  return lines.slice(0, max).join('\n') + `\n… (+${lines.length - max} más)`
+}
+
 let _taskIdCounter = 0
 function nextId() { return `dt-${++_taskIdCounter}` }
 
@@ -548,26 +554,35 @@ export function ClientBrief({
                   </div>
 
                   {/* Content preview */}
-                  <div className="rounded-lg p-2.5 space-y-1.5"
+                  <div className="rounded-lg p-2.5 space-y-2"
                     style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     {currentAction === 'replace' ? (
                       <>
-                        <p className="text-xs line-through leading-relaxed"
-                          style={{ color: 'rgba(255,255,255,0.2)' }}>
-                          {proposal.existing.length > 120 ? proposal.existing.slice(0, 120) + '…' : proposal.existing}
-                        </p>
-                        <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {/* Existing — struck through */}
+                        <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans line-through"
+                          style={{ color: 'rgba(255,255,255,0.18)', margin: 0 }}>
+                          {truncateLines(proposal.existing, 3)}
+                        </pre>
+                        <div className="border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }} />
+                        {/* Proposed replacement */}
+                        <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans"
+                          style={{ color: 'rgba(255,255,255,0.75)', margin: 0 }}>
                           {proposal.content}
-                        </p>
+                        </pre>
                       </>
                     ) : (
                       <>
-                        <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.32)' }}>
-                          {proposal.existing.length > 80 ? proposal.existing.slice(0, 80) + '…' : proposal.existing}
-                        </p>
-                        <p className="text-xs leading-relaxed" style={{ color: '#34d399' }}>
-                          + {proposal.content}
-                        </p>
+                        {/* Existing — muted */}
+                        <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans"
+                          style={{ color: 'rgba(255,255,255,0.28)', margin: 0 }}>
+                          {truncateLines(proposal.existing, 2)}
+                        </pre>
+                        <div className="border-t" style={{ borderColor: 'rgba(52,211,153,0.15)' }} />
+                        {/* New bullets to append */}
+                        <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans"
+                          style={{ color: '#34d399', margin: 0 }}>
+                          {proposal.content}
+                        </pre>
                       </>
                     )}
                   </div>

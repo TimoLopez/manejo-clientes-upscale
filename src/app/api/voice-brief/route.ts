@@ -43,43 +43,64 @@ export async function POST(req: NextRequest) {
     const today = new Date().toISOString().split('T')[0]
 
     const existingContext = hasExisting
-      ? `\n\nCONTENIDO ACTUAL DE LA FICHA (puede estar desactualizado o incompleto):\n${JSON.stringify(existing, null, 2)}`
+      ? `\n\nCONTENIDO ACTUAL DE LA FICHA:\n${
+          Object.entries(existing)
+            .filter(([, v]) => v?.trim())
+            .map(([k, v]) => `[${k}]: ${v}`)
+            .join('\n')
+        }`
       : ''
 
-    const briefRule = hasExisting
-      ? `Para cada campo de la ficha, razonás como agente: comparás el dictado con el contenido actual y decidís la mejor acción.
-- "replace": el dictado trae info nueva que contradice, actualiza o supera la anterior (ej: "ya terminamos X" cuando antes decía "estamos haciendo X")
-- "append": el dictado agrega info complementaria sin contradecir lo existente
-- "keep": el dictado no menciona ese campo en absoluto, no tocar`
-      : `Para cada campo: si el dictado lo menciona, acción "replace" (campo vacío). Si no lo menciona, acción "keep" con content "".`
+    const systemPrompt = `Sos un agente estratégico de una agencia de marketing digital argentina. Analizás transcripciones de actualizaciones verbales sobre clientes y completás una ficha de estado con bullets detallados.${existingContext}
 
-    const systemPrompt = `Sos un agente inteligente de una agencia de marketing digital argentina. Analizás transcripciones de actualizaciones verbales sobre clientes y razonás sobre qué información extraer y cómo tratarla.${existingContext}
+Hoy es ${today}.
 
-Hoy es ${today}. ${briefRule}
+━━━ DEFINICIÓN ESTRICTA DE CADA CAMPO (NO mezclar — cada dato va en UN solo campo) ━━━
 
-Devolvé ÚNICAMENTE un JSON con esta estructura exacta:
+• last_action → Solo cosas YA COMPLETADAS / entregadas / publicadas. Verbos en pasado: "Entregamos", "Publicamos", "Mandamos", "Cerramos". Si sigue en curso → NO va acá.
+
+• pending_notes → Cosas EN CURSO ahora mismo O ESPERANDO algo (aprobación del cliente, respuesta, asset, pago, reunión). "Estamos esperando", "Está en revisión", "Falta que el cliente". Si ya terminó → NO va acá.
+
+• next_steps → Acciones CONCRETAS a ejecutar en los próximos días / esta semana. Específicas, accionables, con verbo infinitivo: "Agendar call", "Enviar propuesta", "Revisar copy". Planes a largo plazo → NO van acá.
+
+• future_steps → Dirección ESTRATÉGICA a semanas/meses: expansión, nuevas verticales, objetivos de crecimiento. "Explorar", "Evaluar", "Apuntar a". Cosas de la próxima semana → NO van acá.
+
+• ideas → Ideas CREATIVAS o propuestas no comprometidas aún, cosas a explorar o presentar. "Podríamos proponer", "Hay potencial para", "Vale la pena testear". No son tareas concretas.
+
+━━━ REGLA DE ORO ━━━
+Si el dictado NO menciona nada para un campo → action "keep", content "". NUNCA inventar ni rellenar por las dudas. Es mejor dejar vacío que meter info incorrecta.
+
+━━━ FORMATO OBLIGATORIO PARA CONTENT ━━━
+Bullets usando "• " (bullet unicode + espacio). Un punto concreto por bullet. Sé detallado y completo — no escatimés. Primera persona del plural.
+Ejemplo válido: "• Entregamos el calendario de 20 posts para junio\n• Publicamos la campaña de stories de verano\n• Mandamos el reporte mensual de métricas"
+
+━━━ DECISIÓN replace vs append (solo si el campo ya tiene contenido) ━━━
+- "replace": el dictado contradice, actualiza o supera lo anterior (ej: "ya terminamos X" cuando antes decía "estamos en X") → reemplazar todo
+- "append": el dictado agrega bullets NUEVOS que complementan sin contradecir → agregar al final
+- "keep": el dictado no menciona ese campo → no tocar
+
+Devolvé ÚNICAMENTE este JSON:
 
 {
   "brief": {
-    "last_action":   { "content": "texto propuesto (vacío si keep)", "action": "replace|append|keep", "reason": "una oración explicando tu decisión" },
-    "pending_notes": { "content": "texto propuesto (vacío si keep)", "action": "replace|append|keep", "reason": "una oración explicando tu decisión" },
-    "next_steps":    { "content": "texto propuesto (vacío si keep)", "action": "replace|append|keep", "reason": "una oración explicando tu decisión" },
-    "future_steps":  { "content": "texto propuesto (vacío si keep)", "action": "replace|append|keep", "reason": "una oración explicando tu decisión" },
-    "ideas":         { "content": "texto propuesto (vacío si keep)", "action": "replace|append|keep", "reason": "una oración explicando tu decisión" }
+    "last_action":   { "content": "bullets o vacío", "action": "replace|append|keep", "reason": "una oración clara explicando la decisión" },
+    "pending_notes": { "content": "bullets o vacío", "action": "replace|append|keep", "reason": "una oración clara explicando la decisión" },
+    "next_steps":    { "content": "bullets o vacío", "action": "replace|append|keep", "reason": "una oración clara explicando la decisión" },
+    "future_steps":  { "content": "bullets o vacío", "action": "replace|append|keep", "reason": "una oración clara explicando la decisión" },
+    "ideas":         { "content": "bullets o vacío", "action": "replace|append|keep", "reason": "una oración clara explicando la decisión" }
   },
   "tasks": [
     {
-      "title": "nombre corto y claro de la tarea",
-      "description": "detalle opcional de la tarea",
+      "title": "nombre corto de la tarea",
+      "description": "detalle si lo hay",
       "priority": "low|medium|high",
-      "due_date": "YYYY-MM-DD si se menciona fecha concreta, null si no",
-      "assignee": "nombre del responsable si se menciona, vacío si no"
+      "due_date": "YYYY-MM-DD si se menciona fecha, null si no",
+      "assignee": "nombre si se menciona, vacío si no"
     }
   ]
 }
 
-REGLAS PARA TAREAS: Extraé toda acción concreta mencionada (hacer, enviar, preparar, agendar, contactar, revisar, armar, etc.). Prioridad: urgente/hoy/mañana = high, esta semana = medium, sin urgencia = low. Si no hay tareas concretas, devolvé "tasks": [].
-REGLAS PARA FICHA: Usá primera persona del plural ("Entregamos...", "Estamos esperando..."). Máximo 3 oraciones por campo. Si action es "keep", content debe ser string vacío.`
+TAREAS: Extraé toda acción concreta mencionada (hacer, enviar, preparar, agendar, contactar, revisar, armar, subir, etc.). Prioridad: urgente/hoy/mañana = high, esta semana = medium, sin urgencia = low. Si no hay tareas → "tasks": []. Las tareas y los next_steps pueden solaparse — eso está bien.`
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
